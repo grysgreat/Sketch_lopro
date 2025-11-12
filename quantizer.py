@@ -398,8 +398,11 @@ def sketch_pre_split(W, feat_scale, bit=4, fix_rank=0, ratio=0.1, groupsize=128,
     # S_trunc = S[:srank].detach().cpu()
     # Vh_trunc = Vh[:srank, :].detach().cpu()
 
-
-
+    # import logging
+    # if torch.any(torch.isnan(W_scale_T)):
+    #     logging.warning('NaN in W_scale_T')
+    #     raise ValueError('NaN in W_scale_T')   
+    # print(W_scale_T.dtype, W_scale_T.max(), W_scale_T.min())
     W2,U_trunc,Vh_trunc,S_trunc,max_0,max_now,srank = get_best_sketch_fp8_ret(W_scale_T, bit, ratio = ratio, fix_rank = fix_rank, max_sketch_iter = lora_iter)
     
 
@@ -428,8 +431,14 @@ def sketch_pre_split(W, feat_scale, bit=4, fix_rank=0, ratio=0.1, groupsize=128,
             "V": Vh_trunc.cuda().to(dtype),
             "Si": S_trunc.cuda().to(dtype),
             "Sa": Sa.cuda().to(dtype)
-        }        
+        }
 
+    lora = (lora_struct["U"].to(W.dtype) @ torch.diag(lora_struct["Si"])@ lora_struct["V"].to(W.dtype))
+    lora = (torch.diag(lora_struct["Sa"]) @ lora).T
+    # import logging
+    # if torch.any(torch.isnan(lora_struct["U"].to(W.dtype) )):
+    #     logging.warning('NaN in lora_struct["U"]')
+    #     raise ValueError('NaN in lora_struct["U"]')   
     # 7. 删除所有 GPU 中间变量
     del W_scale_T,  feat_scale
     del U_trunc, S_trunc, Vh_trunc, Sa  # 可选：这些已经是 CPU，但引用可删

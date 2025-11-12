@@ -405,6 +405,7 @@ class GPTQ_lora:
         W = self.layer.weight.data.clone()
         if torch.any(torch.isnan(self.layer.weight)):
             logging.warning('NaN in ow')
+            return
             raise ValueError('NaN in ow')   
  
         #print(self.lora["U"].dtype)
@@ -752,11 +753,13 @@ def gptq_fwrd_lora(model, loras, dataloader, dev, args):
 
     # for module in model.modules():
     #     module.to(dev)
+    layer_kwargs = {}
     class Catcher(nn.Module):
         def __init__(self, module):
             super().__init__()
             self.module = module
         def forward(self, inp, **kwargs):
+            layer_kwargs.update(kwargs)
             inps[cache['i']] = inp
             cache['i'] += 1
             cache['attention_mask'] = kwargs['attention_mask']
@@ -800,8 +803,9 @@ def gptq_fwrd_lora(model, loras, dataloader, dev, args):
         sequential = [["self_attn.q_proj", "self_attn.k_proj", "self_attn.v_proj", "self_attn.o_proj", "mlp.gate_proj", "mlp.up_proj", "mlp.down_proj"]]
     elif isinstance(layers[0], MixtralDecoderLayer):
         sequential = MixtralQuantLayerA
-    
-
+    elif isinstance(layers[0], Qwen2DecoderLayer):
+        sequential = [["self_attn.q_proj", "self_attn.k_proj", "self_attn.v_proj", "self_attn.o_proj", "mlp.gate_proj", "mlp.up_proj", "mlp.down_proj"]]
+    print(sequential)
     for i in range(len(layers)): 
 
         lora_layer = loras[i]
@@ -834,7 +838,8 @@ def gptq_fwrd_lora(model, loras, dataloader, dev, args):
             for name in subset:
                 handles.append(subset[name].register_forward_hook(add_batch(name)))
             for j in range(args.nsamples):
-                outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids)[0]
+                #outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids)[0]
+                outs[j] = layer(inps[j].unsqueeze(0), **layer_kwargs)[0]
             for h in handles:
                 h.remove()
 
@@ -848,8 +853,8 @@ def gptq_fwrd_lora(model, loras, dataloader, dev, args):
                 gptq[name].free()
 
         for j in range(args.nsamples):
-            outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids)[0]
-
+            #outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids)[0]
+            outs[j] = layer(inps[j].unsqueeze(0), **layer_kwargs)[0]
         layers[i] = layer.cpu()
         del layer
         del gptq 

@@ -1017,17 +1017,25 @@ def quant_sketch_clip_iter_for3_reduce_retWR_split(layer, input_feat, w_bit, gro
     
     scale_time = 2.4
     mean_feat = mean_feat.pow(scale_time)
+    if torch.any(torch.isinf(mean_feat)):
+        mean_feat = input_feat.abs().view(-1, input_feat.shape[-1]).mean(0)
+        mean_feat = mean_feat.pow(1.2)
 
-    #mean_feat  = mean_feat/mean_feat.mean()
+
     if mean_feat.dtype==torch.float16:
         mean_feat = mean_feat.clamp(min=SCALE_CLAMP_MIN)
     if mean_feat.dtype==torch.bfloat16:
         mean_feat = mean_feat.clamp(min=1e-14)
     else:
         mean_feat = mean_feat.clamp(min=1e-15)
-    scales = mean_feat / (mean_feat.max() * mean_feat.min()).sqrt()
+    scales = mean_feat / ((mean_feat.max().float() * mean_feat.min().float()).sqrt()).to(mean_feat.dtype)
     
-    
+    import logging
+    if torch.any(torch.isnan(scales)):
+        logging.warning('NaN in scales')
+        raise ValueError('NaN in scales')
+
+
     input_feat = input_feat.cuda()
     scale_org = input_feat @ layer.weight.T
 
@@ -1037,6 +1045,7 @@ def quant_sketch_clip_iter_for3_reduce_retWR_split(layer, input_feat, w_bit, gro
     else:
         lora_W_struct,srank = sketch_pre_split(layer.weight, scales, fix_rank = fix_rank, bit = w_bit, ratio = ratio, groupsize = group_size, lora_bit = lora_bit, lora_iter = lora_iter)
     #print(torch.max(torch.abs(lora_W_struct)), torch.max(torch.abs(scales)))
+
 
     quant_infos["lora_rank"] = quant_infos["lora_rank"] + srank
     quant_infos["lora_size"] =  quant_infos["lora_size"] + srank * (layer.weight.size(0) + layer.weight.size(1))*lora_bit
@@ -1749,6 +1758,8 @@ def scale_quant_layer_ret_WR_2(layer, input_feat, quant_infos, w_bit=4, fix_rank
         quant_list = ["self_attn.q_proj", "self_attn.k_proj", "self_attn.v_proj", "self_attn.o_proj", "mlp.gate_proj", "mlp.up_proj", "mlp.down_proj"]
     elif isinstance(layer, MixtralDecoderLayer):
         quant_list = MixtralQuantLayer
+    elif isinstance(layer, Qwen2DecoderLayer):
+        quant_list = ["self_attn.q_proj", "self_attn.k_proj", "self_attn.v_proj", "self_attn.o_proj", "mlp.gate_proj", "mlp.up_proj", "mlp.down_proj"]
     for name in quant_list:
         if name in input_feat:
             module = get_module(layer, name)
