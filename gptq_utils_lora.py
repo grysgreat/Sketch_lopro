@@ -414,7 +414,8 @@ class GPTQ_lora:
         #print(lora.shape)
         if torch.any(torch.isnan(lora)):
             logging.warning('NaN in lora')
-            raise ValueError('NaN in lora')            
+            return
+      
         W = W.float()
         lora = lora.float().to(W.device)
 

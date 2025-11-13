@@ -1,2 +1,4 @@
 *.out
 *.pyc
+*.sh
+*_data.py
